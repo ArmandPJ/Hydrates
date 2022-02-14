@@ -10,6 +10,9 @@ import numpy as np
 from scipy import special
 
 class Neighborhood:
+    """
+    This is a neighborhood.
+    """
     def __init__(self, arr, nn_distance):
         self.atoms_array = arr
         self.number_residents = len(arr)
@@ -71,9 +74,9 @@ class Neighborhood:
                 if(phi < 0): phi += np.pi
                 self.QLM_list = np.append(self.QLM_list, special.sph_harm(m, L, theta, phi))
             
-            self.QLM = abs(np.sum(self.QLM_list)/len(self.QLM_list))**2
-            print(f"QLM of neighborhood: {self.QLM}")
-            return self.QLM
+            #self.QLM = abs(np.sum(self.QLM_list)/len(self.QLM_list))**2
+            #print(f"QLM of neighborhood: {self.QLM}")
+            return np.sum(self.QLM_list)
         else:
             print("Error: This neighborhood has not generated its nearest neighbor vectors!")
             sys.exit(1)

@@ -21,7 +21,7 @@ from ase import io
 from ase import Atoms
 from pathlib import Path
 
-#warnings.simplefilter("ignore")
+warnings.simplefilter("ignore")
 
 sys.path.append(".") # add this directory as a path for modules
 from neighbormanager import Neighborhood
@@ -29,7 +29,7 @@ from neighbormanager import Neighborhood
 #input_path = str(sys.argv[1])
 #L = int(sys.argv[2])
 
-directory = "C:/Users/arman/Desktop/College/UNT/Research/MateriaLab/Programs"
+directory = "C:/Users/Armand/Desktop/College/UNT/Research/MateriaLab/Programs"
 
 file_name = input("Enter file name: ")
 #file_name = "hydrate.pdb"
@@ -53,15 +53,16 @@ file_object = open(input_path, "r")
 file_string = file_object.read()
 framesTotal = file_string.count('frame')
 num_frames = framesTotal
-frame_list = np.linspace(1, num_frames+1, num_frames)
+frame_list = np.arange(1, num_frames+1, 1)
 
 file_object.seek(0,0)
 
 QL_list = []
 
+# Loop through a .pdb file frame by frame
 for iframe in range(num_frames):
     
-    print(f"Current frame is: {iframe+1}")
+    print(f"Current frame is: {iframe+1}/{num_frames}")
     
     # stores Atoms array in fileData
     fileData = ase.io.read(input_path,index=iframe,format='proteindatabank')
@@ -73,7 +74,7 @@ for iframe in range(num_frames):
     all_atom_positions = all_atom_positions[all_atom_positions[:,2].argsort()] # sort the array by the z coordinate
     
     # only store atoms with z between 39 and 58 in important_atom_positions *** (NEED TO: take parameters to set these boundaries manually) ***
-    important_atom_positions = all_atom_positions[(all_atom_positions[:,2] >= 39) & (all_atom_positions[:,2] <= 58)]
+    important_atom_positions = all_atom_positions[(all_atom_positions[:,2] >= 39) & (all_atom_positions[:,2] <= 60)]
     
     
     # Get useful lengths and dimensions of arrays for printing, later use in loops, etc.
@@ -86,17 +87,17 @@ for iframe in range(num_frames):
     # First, generate Neighborhoods by partitioning the list of positions into groups of size neighborhood_partition_size,
     # where any remainder at the end is grouped together in a Neighborhood which is smaller than the rest (the length of 
     # the list of atom positions will generally not be nicely divisible into equal groups so the final group will be smaller).
-    neighborhood_partition_size = 200
+    neighborhood_partition_size = 100
     neighborhood_list = []
     
     head = 0
     while(head < coord_length):
-        if(head+100 > coord_length):
+        if(head+neighborhood_partition_size > coord_length):
             neighborhood_list.append(Neighborhood(important_atom_positions[head:coord_length], rnn))
             head = coord_length
         else:
-            neighborhood_list.append(Neighborhood(important_atom_positions[head:head+100], rnn))
-            head += 100
+            neighborhood_list.append(Neighborhood(important_atom_positions[head:head+neighborhood_partition_size], rnn))
+            head += neighborhood_partition_size
 
     num_neighborhoods = len(neighborhood_list)
     print(f"Number of neighborhoods: {num_neighborhoods}")
@@ -105,17 +106,23 @@ for iframe in range(num_frames):
         neighborhood_list[i].generate_nearest_neighbor_vecs()
     
     
-    # Calculate QL, a bond order parameter which is averaged over all nearest neighbor pairs in a neighborhood (then average over all neighborhoods)
-    QLM = []
+    # Calculate QL, a bond order parameter which is averaged over all nearest neighbor pairs in a neighborhood 
+    # (then averaged over all neighborhoods)
     QL = 0.0
+    QLM_average = 0.0
+    total_nn_pairs = 0
     
     for m in range (-L, L+1):
+        QLM_average = 0.0
         for i in range(num_neighborhoods):
-            QL += neighborhood_list[i].calc_QLM(m, L)
-    
+            QLM_average += neighborhood_list[i].calc_QLM(m, L)
+            total_nn_pairs += len(neighborhood_list[i].get_nearest_neighbor_vecs())
+        QLM_average /= total_nn_pairs
+        QL += abs(QLM_average)**2
+
     QL = np.sqrt(QL*((4*np.pi)/(2*L + 1)))
     QL_list.append(QL)
-    print(f"Q{L} value for this frame: {QL_list[iframe]}\n")
+    print(f"Q{L} value for this frame: {QL_list[iframe]:.4f}\n")
 
 end_time = time.process_time()
 elapsed_time = end_time - start_time
@@ -135,13 +142,21 @@ print()
 print()
 print(f"Elapsed time was {elapsed_time} seconds.")
 
-fig, ax = plt.subplots()
-L_string = "Q" + str(L)
-_title = "Value of " + L_string + " Frame-by-Frame"
-ax.plot(frame_list, QL_list, linestyle='dotted', markersize=8)
-ax.scatter(frame_list, QL_list, color='r')
-ax.set(title=_title, xlabel='Frame', ylabel=L_string)
-plt.show()
+# Graphing the data
+#fig, ax = plt.subplots()
+#L_string = "Q" + str(L)
+#_title = "Value of " + L_string + " Frame-by-Frame"
+#ax.plot(frame_list, QL_list, linestyle='dotted', markersize=8)
+#ax.scatter(frame_list, QL_list, color='r')
+#ax.set(title=_title, xlabel='Frame', ylabel=L_string)
+#plt.show()
+
+# Writing the data to a text file:
+with open(f'./Q_output_{file_name}.txt', 'w') as f:
+    f.write(f'Bond Order Parameters for {file_name}\n')
+    f.write(f'Frame              Q{L}\n')
+    for i in range(len(QL_list)):
+        f.write(f'{frame_list[i]}               {QL_list[i]:.4f}\n')
 
 
 # Pseudocode for math:
