@@ -44,14 +44,14 @@ L = 6
 
 start_time = time.process_time()
 
-r0 = 5.00 # baseline NN distance (formerly the diameter of a water molecule, 2.75 Angstroms)
+r0 = 2.75 # baseline NN distance (formerly the diameter of a water molecule, 2.75 Angstroms)
 rnn = 1.2*r0 # nearest neighbor threshold distance, in factor of r0
 rnn2 = rnn**2 # square of neighbor threshold distance
 
 file_object = open(input_path, "r")
 file_string = file_object.read()
-framesTotal = file_string.count('frame')
-num_frames = framesTotal
+frames_total = file_string.count('frame')
+num_frames = frames_total
 frame_list = np.linspace(1, num_frames+1, num_frames)
 
 file_object.seek(0,0)
@@ -60,15 +60,15 @@ QL_list = []
 
 for iframe in range(num_frames):
     
-    print(f"Current frame is: {iframe+1}")
+    print(f"Current Frame is: {iframe+1}")
     
     # stores Atoms array in fileData
-    fileData = ase.io.read(input_path,index=iframe,format='proteindatabank')
-    symbolData = np.array(fileData.get_chemical_symbols())
-    all_atom_positions: np.ndarray = fileData.get_positions()
+    file_data = ase.io.read(input_path,index=iframe,format='proteindatabank')
+    symbol_data = np.array(file_data.get_chemical_symbols())
+    all_atom_positions: np.ndarray = file_data.get_positions()
     
     # Filtering
-    all_atom_positions = all_atom_positions[(symbolData != 'H')] # filter out hydrogen atoms from all_atom_positions
+    all_atom_positions = all_atom_positions[(symbol_data != 'H')] # filter out hydrogen atoms from all_atom_positions
     all_atom_positions = all_atom_positions[all_atom_positions[:,2].argsort()] # sort the array by the z coordinate
 
     z_min = 39 # narrow down the array to a layer of atoms between z = 39 and z = 58
@@ -84,56 +84,57 @@ for iframe in range(num_frames):
     print(f"Length of all_atom_positions:    {total_atoms}")
     print(f"Length of layer_atom_positions: {layer_num_atoms}")
 
-    atoms_per_nn_distance = int(np.floor(layer_num_atoms/rnn))
-    print(f"Atoms per nn_distance: {atoms_per_nn_distance}")
+    #atoms_per_nn_distance = int(np.floor(layer_num_atoms/rnn))
+    #print(f"Atoms per nn_distance: {atoms_per_nn_distance}")
 
     # Find and store Nearest Neighbors
     nearest_neighbor_vectors = np.empty((0, 3))
 
     dr = 0.0 # distance between two atoms being checked
     vec = np.empty((0, 3)) # vector from atom i to atom j
-    index_radius_lower = 0 # determines the range of indices that j will scan
-    index_radius_upper = 0
+    vec_norm = 0.0
     for i in range(layer_num_atoms):
-        index_radius_lower = i - atoms_per_nn_distance
-        index_radius_upper = i + atoms_per_nn_distance + 1
-        for j in range(index_radius_lower, index_radius_upper):
-            if(0 <= j < total_atoms):
-                #vec = all_atom_positions[j] - layer_atom_positions[i]
-                dx = all_atom_positions[j][0] - layer_atom_positions[i][0]
-                dy = all_atom_positions[j][1] - layer_atom_positions[i][1]
-                dz = all_atom_positions[j][2] - layer_atom_positions[i][2]
-                vec = np.array([dx, dy, dz])
-                print(f"\nj atom vector: {all_atom_positions[j]}")
-                print(f"i atom vector: {layer_atom_positions[i]}")
-                print(f"vec = {vec}")
-                dr = sqrt(np.sum(np.square(vec)))
-                print(f"dr = {dr}")
-                print(f"nn_distance = {rnn}")
-                print(f"Difference = {abs(dr-rnn)}\n")
-                print(f"Atoms per nn_distance: {atoms_per_nn_distance}")
-                #dr = np.linalg.norm(vec, axis=0)
-                # ensure we are NOT checking if an atom is its own nearest neighbor (dr can't be 0)
-                if(dr <= rnn): # append the vector vec to nearest_neighbor_vectors iff vec's magnitude is within the threshold rnn
+        for j in range(i, total_atoms):
+            # Only perform calculations if the difference in z-coordinate is within rnn distance
+            if(abs(layer_atom_positions[i][2] - all_atom_positions[j][2]) <= rnn):
+                vec = all_atom_positions[j] - layer_atom_positions[i]
+                vec_norm = np.linalg.norm(vec)
+                if(vec_norm <= rnn and vec_norm != 0):
+                    # If vec is a nearest neighor vector, then so is -vec. This allows the loop to
+                    # only check atoms sequentially rather than backtracking
                     nearest_neighbor_vectors = np.append(nearest_neighbor_vectors, [vec], axis=0)
-                    #print(f"Vec: {vec}")
+                    nearest_neighbor_vectors = np.append(nearest_neighbor_vectors, [-1*vec], axis=0)
 
-    #print(f"Nearest neighbor vectors length: {len(nearest_neighbor_vectors)}")
-    #print(nearest_neighbor_vectors)
-    sys.exit(1)
+    num_neighbor_vectors = len(nearest_neighbor_vectors)
+    print(f"Nearest neighbor vectors length: {num_neighbor_vectors}")
+    print(nearest_neighbor_vectors)
+    #sys.exit(1)
 
     
     # Calculate QL, a bond order parameter which is averaged over all nearest neighbor pairs in a neighborhood (then average over all neighborhoods)
-    QLM = []
+    QLM = np.empty(0)
     QL = 0.0
+
+    # calculates QLM given quantum numbers m & L for all nearest neighbor vectors in this neighborhood, then averages QLM values and returns the square of the absolute value
+    def calc_QLM(r_vector, _m, _L):
+        #print(f"QLM list: {self.QLM}")
+        r_mag = np.linalg.norm(r)
+        if(r[0] < 0.001):
+            r[0] = 0.001
+        theta = np.arctan(r[1]/r[0]) # azimuthal angle
+        if(theta < 0): theta += 2*np.pi
+        phi = np.arccos(r[2]/r_mag) # polar/colatitudinal angle
+        if(phi < 0): phi += np.pi
+        return special.sph_harm(_m, _L, theta, phi)
     
     for m in range (-L, L+1):
-        for i in range(num_neighborhoods):
-            QL += neighborhood_list[i].calc_QLM(m, L)
+        for r in nearest_neighbor_vectors:
+            QLM = np.append(QLM, calc_QLM(r, m, L))
+        QL += abs((np.sum(QLM)/num_neighbor_vectors))**2
     
     QL = np.sqrt(QL*((4*np.pi)/(2*L + 1)))
     QL_list.append(QL)
-    print(f"Q{L} value for this frame: {QL_list[iframe]}\n")
+    print(f"Q{L} value for Frame {iframe+1}: {QL_list[iframe]}\n")
 
 end_time = time.process_time()
 elapsed_time = end_time - start_time
