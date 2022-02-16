@@ -44,7 +44,7 @@ L = 6
 
 start_time = time.process_time()
 
-r0 = 2.75 # baseline NN distance (formerly the diameter of a water molecule, 2.75 Angstroms)
+r0 = 2.75 # baseline NN distance
 rnn = 1.2*r0 # nearest neighbor threshold distance, in factor of r0
 rnn2 = rnn**2 # square of neighbor threshold distance
 
@@ -52,7 +52,7 @@ file_object = open(input_path, "r")
 file_string = file_object.read()
 frames_total = file_string.count('frame')
 num_frames = frames_total
-frame_list = np.linspace(1, num_frames+1, num_frames)
+frame_list = np.arange(1, num_frames+1, 1)
 
 file_object.seek(0,0)
 
@@ -60,7 +60,7 @@ QL_list = []
 
 for iframe in range(num_frames):
     
-    print(f"Current Frame is: {iframe+1}")
+    print(f"Current Frame is: {iframe+1}/{num_frames}")
     
     # stores Atoms array in fileData
     file_data = ase.io.read(input_path,index=iframe,format='proteindatabank')
@@ -84,8 +84,6 @@ for iframe in range(num_frames):
     print(f"Length of all_atom_positions:    {total_atoms}")
     print(f"Length of layer_atom_positions: {layer_num_atoms}")
 
-    #atoms_per_nn_distance = int(np.floor(layer_num_atoms/rnn))
-    #print(f"Atoms per nn_distance: {atoms_per_nn_distance}")
 
     # Find and store Nearest Neighbors
     nearest_neighbor_vectors = np.empty((0, 3))
@@ -95,15 +93,16 @@ for iframe in range(num_frames):
     vec_norm = 0.0
     for i in range(layer_num_atoms):
         for j in range(i, total_atoms):
-            # Only perform calculations if the difference in z-coordinate is within rnn distance
-            if(abs(layer_atom_positions[i][2] - all_atom_positions[j][2]) <= rnn):
-                vec = all_atom_positions[j] - layer_atom_positions[i]
-                vec_norm = np.linalg.norm(vec)
-                if(vec_norm <= rnn and vec_norm != 0):
-                    # If vec is a nearest neighor vector, then so is -vec. This allows the loop to
-                    # only check atoms sequentially rather than backtracking
-                    nearest_neighbor_vectors = np.append(nearest_neighbor_vectors, [vec], axis=0)
-                    nearest_neighbor_vectors = np.append(nearest_neighbor_vectors, [-1*vec], axis=0)
+            if(j < total_atoms):
+                # Only perform calculations if the difference in z-coordinate is within rnn distance
+                if(abs(layer_atom_positions[i][2] - all_atom_positions[j][2]) <= rnn):
+                    vec = all_atom_positions[j] - layer_atom_positions[i]
+                    vec_norm = np.linalg.norm(vec)
+                    if(vec_norm <= rnn and vec_norm != 0):
+                        # If vec is a nearest neighor vector, then so is -vec. This allows the loop to
+                        # only check atoms sequentially rather than backtracking
+                        nearest_neighbor_vectors = np.append(nearest_neighbor_vectors, [vec], axis=0)
+                        nearest_neighbor_vectors = np.append(nearest_neighbor_vectors, [-1*vec], axis=0)
 
     num_neighbor_vectors = len(nearest_neighbor_vectors)
     print(f"Nearest neighbor vectors length: {num_neighbor_vectors}")
@@ -154,13 +153,12 @@ print()
 print()
 print(f"Elapsed time was {elapsed_time} seconds.")
 
-fig, ax = plt.subplots()
-L_string = "Q" + str(L)
-_title = "Value of " + L_string + " Frame-by-Frame"
-ax.plot(frame_list, QL_list, linestyle='dotted', markersize=8)
-ax.scatter(frame_list, QL_list, color='r')
-ax.set(title=_title, xlabel='Frame', ylabel=L_string)
-plt.show()
+# Writing the data to a text file:
+with open(f'./output_files/Q_output_{file_name}.txt', 'w') as f:
+    f.write(f'Bond Order Parameters for {file_name}\n')
+    f.write(f'Frame          Q{L}\n')
+    for i in range(len(QL_list)):
+        f.write(f'{frame_list[i]}              {QL_list[i]:.4f}\n')
 
 
 # Pseudocode for math:
