@@ -89,7 +89,7 @@ for iframe in range(num_frames):
     nearest_neighbor_vectors = np.empty((0, 3))
 
     dr = 0.0 # distance between two atoms being checked
-    vec = np.empty((0, 3)) # vector from atom i to atom j
+    vec = np.empty(0) # vector from atom i to atom j
     vec_norm = 0.0
     for i in range(layer_num_atoms):
         for j in range(i, total_atoms):
