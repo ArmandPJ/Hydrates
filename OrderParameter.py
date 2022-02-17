@@ -7,85 +7,171 @@ Created on Wed Jul 14 18:03:01 2021
 
 # Program to perform order parameter calculations on input coordinates
 
-from mpmath import * 
+#from mpmath import * 
+import sys
+import warnings
+import os
+import time
 import numpy as np
 import matplotlib.pyplot as plt
-import scipy as sci
+from scipy import special
+from math import sqrt
+import ase # just import what you need
+from ase import io
+from ase import Atoms
+from pathlib import Path
 
-file_object = open("hydrate.pdb", "r") # replace "filename" with input file name
+warnings.simplefilter("ignore")
 
-x = 0.0
-y = 0.0
-z = 0.0
+#sys.path.append(".") # add this directory as a path for modules
+#from neighbormanager import Neighborhood
 
-theta = 0.0
-phi = 0.0
+#input_path = str(sys.argv[1])
+#L = int(sys.argv[2])
 
-r0 = 2.75 # diameter of water molecule in angstroms; in general,
-          # first peak in radial distribution (Steinhardt)
+directory = "/home/armandpj/Work/Hydrates/examples"
+
+file_name = input("Enter file name: ")
+#file_name = "hydrate.pdb"
+input_path = Path(directory)/file_name
+
+if not input_path.exists():
+    print(f"The path {input_path} does not exist!")
+    sys.exit(1)
+    
+#L = int(input("Enter L value (must be even): "))
+L = 6
+
+start_time = time.process_time()
+
+r0 = 3.0 # baseline NN distance, in angstroms
 rnn = 1.2*r0 # nearest neighbor threshold distance, in factor of r0
+rnn2 = rnn**2 # square of neighbor threshold distance
 
-atom_list = []
-coord_list = []
+file_object = open(input_path, "r")
+file_string = file_object.read()
+frames_total = file_string.count('frame')
+num_frames = frames_total
+frame_list = np.arange(1, num_frames+1, 1)
 
-for i in range(10): # how many lines to read
-    cur = file_object.readline(); # cur stores the current or most recent line
-    if(cur.find('ATOM') != -1): # if an ATOM line, store in atom_list
-        line_data = cur.split()
-        atom_list.append(line_data)
+file_object.seek(0,0)
 
-for i in range(len(atom_list)):
-    temp_coord_list = [] # stores xyz coords as nested lists in coord_list
-    for j in range(5,8): # column 5 through 7 in text file give xyz coords
-        temp_coord_list.append(atom_list[i][j])
-    coord_list.append(temp_coord_list)
+QL_list = []
 
-dx = 0.0 # temp. variables storing coord. differences for nearest neighbors
-dy = 0.0
-dz = 0.0
+for iframe in range(num_frames):
+    
+    print(f"Current Frame is: {iframe+1}/{num_frames}")
+    
+    # stores Atoms array in fileData
+    file_data = ase.io.read(input_path,index=iframe,format='proteindatabank')
+    symbol_data = np.array(file_data.get_chemical_symbols())
+    all_atom_positions: np.ndarray = file_data.get_positions()
+    
+    # Filtering
+    all_atom_positions = all_atom_positions[(symbol_data != 'H')] # filter out hydrogen atoms from all_atom_positions
+    all_atom_positions = all_atom_positions[all_atom_positions[:,2].argsort()] # sort the array by the z coordinate
 
-# nn_list stores sublists of nearest neighbors for all atoms
-nn_list =[[] for i in range(len(atom_list))]
+    z_min = 39 # narrow down the array to a layer of atoms between z = 39 and z = 58
+    z_max = 58
+    
+    # only store atoms with z between 39 and 58 in layer_atom_positions
+    layer_atom_positions = all_atom_positions[(all_atom_positions[:,2] >= z_min) & (all_atom_positions[:,2] <= z_max)]
+    
+    
+    # Get useful lengths and dimensions of arrays for printing, later use in loops, etc.
+    layer_num_atoms, num_coords = layer_atom_positions.shape
+    total_atoms = len(all_atom_positions)
+    print(f"Length of all_atom_positions:    {total_atoms}")
+    print(f"Length of layer_atom_positions:  {layer_num_atoms}")
 
-for i in range(len(coord_list)-1):
-    for j in range(len(coord_list)-1):
-        if(i != j):
-            dx = float(coord_list[i][0]) - float(coord_list[j][0])
-            dy = float(coord_list[i][1]) - float(coord_list[j][1])
-            dz = float(coord_list[i][2]) - float(coord_list[j][2])
-            dr = (dx**2 + dy**2 + dz**2)**0.5
-            if(dr <= rnn):
-                if(j in nn_list[i]) != True:
-                    nn_list[i].append(j)  
-                    # i is atom index, j is index of a NN to that atom
-                if(i in nn_list[j]) != True:
-                    nn_list[j].append(i) # both atom i and j are NN of each other
-# Nearest neighbor generation WORKS!
+
+    # Find and store Nearest Neighbors
+    nearest_neighbor_vec_list = [[]] # Use list to speed up .append
+
+    dr = 0.0 # distance between two atoms being checked
+    vec = np.empty(0) # vector from atom i to atom j
+    vec_norm = 0.0
+    for i in range(layer_num_atoms):
+        atoms_to_check = all_atom_positions[(all_atom_positions[:,0] - layer_atom_positions[i,0] <= rnn) 
+                                            & (all_atom_positions[:,1] - layer_atom_positions[i,1] <= rnn) 
+                                            & (all_atom_positions[:,2] - layer_atom_positions[i,2] <= rnn)]
+        num_atoms_to_check = len(atoms_to_check)
+        if(i == 0): print(f"Number of atoms to check: {num_atoms_to_check}")
+        for j in range(num_atoms_to_check):
+            vec = atoms_to_check[j] - layer_atom_positions[i]
+            vec_norm = np.linalg.norm(vec)
+            if(vec_norm <= rnn and vec_norm != 0):
+                # If vec is a nearest neighor vector, then so is -vec. This allows the loop to
+                # only check atoms sequentially rather than backtracking
+                nearest_neighbor_vec_list.append(vec.tolist())
+                nearest_neighbor_vec_list.append((-1*vec).tolist())
+
+    nearest_neighbor_vectors = np.array(nearest_neighbor_vec_list[1:])
+    num_neighbor_vectors = len(nearest_neighbor_vectors)
+    print(f"Nearest neighbor vectors length: {num_neighbor_vectors}")
+    print(nearest_neighbor_vectors)
+    #sys.exit(1)
+
+    
+    # Calculate QL, a bond order parameter which is averaged over all nearest neighbor pairs
+    QLM = []
+    QL = 0.0
+
+    # calculates QLM, part of the QL equation, given vector r_vector and quantum numbers _m, _L
+    def calc_QLM(r_vector, _m, _L):
+        #print(f"QLM list: {self.QLM}")
+        r_mag = np.linalg.norm(r)
+        if(r[0] == 0.0):
+            if(r[1] > 0): theta = np.pi/2
+            elif(r[1] < 0): theta = 3*(np.pi/2)
+        else: theta = np.arctan(r[1]/r[0]) # azimuthal angle
+        if(theta < 0): theta += 2*np.pi # theta must be between 0 and 2*pi
+
+        phi = np.arccos(r[2]/r_mag) # polar/colatitudinal angle
+        if(phi < 0): phi += np.pi # phi must be between 0 and pi
+        return special.sph_harm(_m, _L, theta, phi)
+    
+    # Performs calculations to obtain QL
+    for m in range (-L, L+1):
+        for r in nearest_neighbor_vectors:
+            QLM.append(calc_QLM(r, m, L))
+        QL += abs((np.sum(QLM)/num_neighbor_vectors))**2
+    
+    QL = np.sqrt(QL*((4*np.pi)/(2*L + 1)))
+    QL_list.append(QL)
+    print(f"Q{L} value for Frame {iframe+1}: {QL_list[iframe]}\n")
+
+end_time = time.process_time()
+elapsed_time = end_time - start_time
 
 file_object.close()
 
-# finds a specific pattern of elements in mylist
-def subfinder(mylist, pattern):
-    matches = []
-    for i in range(len(mylist)):
-        if mylist[i] == pattern[0] and mylist[i:i+len(pattern)] == pattern:
-            matches.append(pattern)
-    return matches
+#print("List of lines/atoms read:\n")
+#print(atom_list)
+#print()
+#print("List of coordinates for each atom:\n")
+#print(layer_atom_positions)
+#print()
+#print("List of nearest neighbors (by list index) for each atom:\n")
+#print(nn_list)
+print()
+#print(f"Calculated value of Q{L}: {QL}\n")
+print()
+print(f"Elapsed time was {elapsed_time} seconds.")
 
-print("List of lines/atoms read:\n")
-print(atom_list)
-print()
-print("List of coordinates for each atom:\n")
-print(coord_list)
-print()
-print("List of nearest neighbors (by index) for each atom:\n")
-print(nn_list)
+# Writing the data to a text file:
+with open(f'./output_files/Q_output_{file_name}.txt', 'w') as f:
+    f.write(f'Bond Order Parameters for {file_name}\n')
+    f.write(f'Frame          Q{L}\n')
+    for i in range(len(QL_list)):
+        f.write(f'{frame_list[i]}              {QL_list[i]:.4f}\n')
+
 
 # Pseudocode for math:
-# select a molecule
-# define a vector r from center of molecule to center of another
-# check if nearest_neighbor; if so, move onto math / if not, skip to next neighbor
-# math: use vector r from molecule to neighbor to calc. angles relative to coordinate frame
+# select an atom
+# define a vector r from center of that atom to another
+# check if nearest_neighbor (within rnn); if so, move onto math / if not, skip to next atom
+# math: use vector r from atom to neighbor to calc. angles relative to coordinate frame
 # plug in angles to spherical harmonic equation to get Qlm
-# average Qlm over all bonds in sample
+# average Qlm over all bonds (nearest-neighbor pairs) in sample
 # plug average into Eq. 1.3 from Steinhardt to calculate Ql
