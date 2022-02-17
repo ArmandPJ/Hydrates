@@ -29,10 +29,10 @@ warnings.simplefilter("ignore")
 #input_path = str(sys.argv[1])
 #L = int(sys.argv[2])
 
-directory = "/home/armandpj/Work/Programs/examples"
+directory = "/home/armandpj/Work/Hydrates/examples"
 
-#file_name = input("Enter file name: ")
-file_name = "hydrate.pdb"
+file_name = input("Enter file name: ")
+#file_name = "hydrate.pdb"
 input_path = Path(directory)/file_name
 
 if not input_path.exists():
@@ -44,7 +44,7 @@ L = 6
 
 start_time = time.process_time()
 
-r0 = 2.75 # baseline NN distance
+r0 = 3.0 # baseline NN distance, in angstroms
 rnn = 1.2*r0 # nearest neighbor threshold distance, in factor of r0
 rnn2 = rnn**2 # square of neighbor threshold distance
 
@@ -82,11 +82,11 @@ for iframe in range(num_frames):
     layer_num_atoms, num_coords = layer_atom_positions.shape
     total_atoms = len(all_atom_positions)
     print(f"Length of all_atom_positions:    {total_atoms}")
-    print(f"Length of layer_atom_positions: {layer_num_atoms}")
+    print(f"Length of layer_atom_positions:  {layer_num_atoms}")
 
 
     # Find and store Nearest Neighbors
-    nearest_neighbor_vectors = np.empty((0, 3))
+    nearest_neighbor_vec_list = [[]] # Use list to speed up .append
 
     dr = 0.0 # distance between two atoms being checked
     vec = np.empty(0) # vector from atom i to atom j
@@ -94,41 +94,45 @@ for iframe in range(num_frames):
     for i in range(layer_num_atoms):
         for j in range(i, total_atoms):
             if(j < total_atoms):
-                # Only perform calculations if the difference in z-coordinate is within rnn distance
+                # Only perform full calculations if the difference in z-coordinate is within rnn distance
                 if(abs(layer_atom_positions[i][2] - all_atom_positions[j][2]) <= rnn):
                     vec = all_atom_positions[j] - layer_atom_positions[i]
                     vec_norm = np.linalg.norm(vec)
                     if(vec_norm <= rnn and vec_norm != 0):
                         # If vec is a nearest neighor vector, then so is -vec. This allows the loop to
                         # only check atoms sequentially rather than backtracking
-                        nearest_neighbor_vectors = np.append(nearest_neighbor_vectors, [vec], axis=0)
-                        nearest_neighbor_vectors = np.append(nearest_neighbor_vectors, [-1*vec], axis=0)
+                        nearest_neighbor_vec_list.append(vec.tolist())
+                        nearest_neighbor_vec_list.append((-1*vec).tolist())
 
+    nearest_neighbor_vectors = np.array(nearest_neighbor_vec_list[1:])
     num_neighbor_vectors = len(nearest_neighbor_vectors)
     print(f"Nearest neighbor vectors length: {num_neighbor_vectors}")
     print(nearest_neighbor_vectors)
     #sys.exit(1)
 
     
-    # Calculate QL, a bond order parameter which is averaged over all nearest neighbor pairs in a neighborhood (then average over all neighborhoods)
-    QLM = np.empty(0)
+    # Calculate QL, a bond order parameter which is averaged over all nearest neighbor pairs
+    QLM = []
     QL = 0.0
 
-    # calculates QLM given quantum numbers m & L for all nearest neighbor vectors in this neighborhood, then averages QLM values and returns the square of the absolute value
+    # calculates QLM, part of the QL equation, given vector r_vector and quantum numbers _m, _L
     def calc_QLM(r_vector, _m, _L):
         #print(f"QLM list: {self.QLM}")
         r_mag = np.linalg.norm(r)
-        if(r[0] < 0.001):
-            r[0] = 0.001
-        theta = np.arctan(r[1]/r[0]) # azimuthal angle
-        if(theta < 0): theta += 2*np.pi
+        if(r[0] == 0.0):
+            if(r[1] > 0): theta = np.pi/2
+            elif(r[1] < 0): theta = 3*(np.pi/2)
+        else: theta = np.arctan(r[1]/r[0]) # azimuthal angle
+        if(theta < 0): theta += 2*np.pi # theta must be between 0 and 2*pi
+
         phi = np.arccos(r[2]/r_mag) # polar/colatitudinal angle
-        if(phi < 0): phi += np.pi
+        if(phi < 0): phi += np.pi # phi must be between 0 and pi
         return special.sph_harm(_m, _L, theta, phi)
     
+    # Performs calculations to obtain QL
     for m in range (-L, L+1):
         for r in nearest_neighbor_vectors:
-            QLM = np.append(QLM, calc_QLM(r, m, L))
+            QLM.append(calc_QLM(r, m, L))
         QL += abs((np.sum(QLM)/num_neighbor_vectors))**2
     
     QL = np.sqrt(QL*((4*np.pi)/(2*L + 1)))
