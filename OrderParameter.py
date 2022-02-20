@@ -72,7 +72,7 @@ for iframe in range(num_frames):
     all_atom_positions = all_atom_positions[all_atom_positions[:,2].argsort()] # sort the array by the z coordinate
 
     z_min = 39 # narrow down the array to a layer of atoms between z = 39 and z = 58
-    z_max = 58
+    z_max = 60
     
     # only store atoms with z between 39 and 58 in layer_atom_positions
     layer_atom_positions = all_atom_positions[(all_atom_positions[:,2] >= z_min) & (all_atom_positions[:,2] <= z_max)]
@@ -101,10 +101,7 @@ for iframe in range(num_frames):
             vec = atoms_to_check[j] - layer_atom_positions[i]
             vec_norm = np.linalg.norm(vec)
             if(vec_norm <= rnn and vec_norm != 0):
-                # If vec is a nearest neighor vector, then so is -vec. This allows the loop to
-                # only check atoms sequentially rather than backtracking
                 nearest_neighbor_vec_list.append(vec.tolist())
-                nearest_neighbor_vec_list.append((-1*vec).tolist())
 
     nearest_neighbor_vectors = np.array(nearest_neighbor_vec_list[1:])
     num_neighbor_vectors = len(nearest_neighbor_vectors)
@@ -113,7 +110,7 @@ for iframe in range(num_frames):
     #sys.exit(1)
 
     
-    # Calculate QL, a bond order parameter which is averaged over all nearest neighbor pairs
+    # Calculate QL, a bond order parameter which is averaged over all nearest neighbor vectors
     QLM = []
     QL = 0.0
 
