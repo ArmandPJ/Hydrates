@@ -13,7 +13,7 @@ import warnings
 import os
 import time
 import numpy as np
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
 from scipy import special
 from math import sqrt
 import ase # just import what you need
@@ -86,7 +86,7 @@ for iframe in range(num_frames):
 
 
     # Find and store Nearest Neighbors
-    nearest_neighbor_vec_list = [[]] # Use list to speed up .append
+    nearest_neighbor_vec_list = [[]] # Use list to speed up list.append compared to numpy.append
 
     dr = 0.0 # distance between two atoms being checked
     vec = np.empty(0) # vector from atom i to atom j
@@ -103,11 +103,10 @@ for iframe in range(num_frames):
             if(vec_norm <= rnn and vec_norm != 0):
                 nearest_neighbor_vec_list.append(vec.tolist())
 
-    nearest_neighbor_vectors = np.array(nearest_neighbor_vec_list[1:])
+    nearest_neighbor_vectors = np.array(nearest_neighbor_vec_list[1:]) # first element of nearest_neighbor_vec_list is an empty list so cut it out
     num_neighbor_vectors = len(nearest_neighbor_vectors)
     print(f"Nearest neighbor vectors length: {num_neighbor_vectors}")
     print(nearest_neighbor_vectors)
-    #sys.exit(1)
 
     
     # Calculate QL, a bond order parameter which is averaged over all nearest neighbor vectors
@@ -143,16 +142,6 @@ elapsed_time = end_time - start_time
 
 file_object.close()
 
-#print("List of lines/atoms read:\n")
-#print(atom_list)
-#print()
-#print("List of coordinates for each atom:\n")
-#print(layer_atom_positions)
-#print()
-#print("List of nearest neighbors (by list index) for each atom:\n")
-#print(nn_list)
-print()
-#print(f"Calculated value of Q{L}: {QL}\n")
 print()
 print(f"Elapsed time was {elapsed_time} seconds.")
 
@@ -161,14 +150,14 @@ with open(f'./output_files/Q_output_{file_name}.txt', 'w') as f:
     f.write(f'Bond Order Parameters for {file_name}\n')
     f.write(f'Frame          Q{L}\n')
     for i in range(len(QL_list)):
-        f.write(f'{frame_list[i]}              {QL_list[i]:.4f}\n')
+        f.write(f'{frame_list[i]}{QL_list[i]:10.4f}\n')
 
 
 # Pseudocode for math:
 # select an atom
 # define a vector r from center of that atom to another
 # check if nearest_neighbor (within rnn); if so, move onto math / if not, skip to next atom
-# math: use vector r from atom to neighbor to calc. angles relative to coordinate frame
+# math: use vector r from atom to neighbor to calc. angles between nearest neighbors
 # plug in angles to spherical harmonic equation to get Qlm
 # average Qlm over all bonds (nearest-neighbor pairs) in sample
 # plug average into Eq. 1.3 from Steinhardt to calculate Ql
