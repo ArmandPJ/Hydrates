@@ -84,6 +84,14 @@ for iframe in range(num_frames):
     print(f"Length of all_atom_positions:    {total_atoms}")
     print(f"Length of layer_atom_positions:  {layer_num_atoms}")
 
+    # Get the width of the hydrate in x, y, z
+    maxima = np.max(all_atom_positions, 0)
+    minima = np.min(all_atom_positions, 0)
+    # maxima and minima are arrays with elements of the maximum or minimum values of each column in all_atom_positions
+    x_width = maxima[0] - minima[0]
+    y_width = maxima[1] - minima[1]
+    z_width = maxima[2] - minima[2]
+
 
     # Find and store Nearest Neighbors
     nearest_neighbor_vec_list = [[]] # Use list to speed up list.append compared to numpy.append
@@ -92,9 +100,13 @@ for iframe in range(num_frames):
     vec = np.empty(0) # vector from atom i to atom j
     vec_norm = 0.0
     for i in range(layer_num_atoms):
-        atoms_to_check = all_atom_positions[(all_atom_positions[:,0] - layer_atom_positions[i,0] <= rnn) 
-                                            & (all_atom_positions[:,1] - layer_atom_positions[i,1] <= rnn) 
-                                            & (all_atom_positions[:,2] - layer_atom_positions[i,2] <= rnn)]
+        non_periodic_atoms_to_check = all_atom_positions[(abs(all_atom_positions[:,0] - layer_atom_positions[i,0]) <= rnn)
+                                                        & (abs(all_atom_positions[:,1] - layer_atom_positions[i,1]) <= rnn)
+                                                        & (abs(all_atom_positions[:,2] - layer_atom_positions[i,2]) <= rnn)]
+        periodic_atoms_to_check = all_atom_positions[(abs(all_atom_positions[:,0] - layer_atom_positions[i,0] - x_width) <= rnn)
+                                                    & (abs(all_atom_positions[:,1] - layer_atom_positions[i,1] - y_width) <= rnn)
+                                                    & (abs(all_atom_positions[:,2] - layer_atom_positions[i,2] - z_width) <= rnn)]
+        atoms_to_check = np.concatenate((non_periodic_atoms_to_check, periodic_atoms_to_check), axis=0)
         num_atoms_to_check = len(atoms_to_check)
         if(i == 0): print(f"Number of atoms to check: {num_atoms_to_check}")
         for j in range(num_atoms_to_check):
