@@ -60,7 +60,7 @@ QL_list = []
 
 for iframe in range(num_frames):
     
-    print(f"Current Frame is: {iframe+1}/{num_frames}")
+    print(f"Current Frame is: {iframe+1}/{num_frames}\n")
     
     # stores Atoms array in fileData
     file_data = ase.io.read(input_path,index=iframe,format='proteindatabank')
@@ -82,38 +82,31 @@ for iframe in range(num_frames):
     layer_num_atoms, num_coords = layer_atom_positions.shape
     total_atoms = len(all_atom_positions)
     print(f"Length of all_atom_positions:    {total_atoms}")
-    print(f"Length of layer_atom_positions:  {layer_num_atoms}")
+    print(f"Length of layer_atom_positions:  {layer_num_atoms}\n")
 
     # Get the width of the hydrate in x, y, z
     maxima = np.max(all_atom_positions, 0)
     minima = np.min(all_atom_positions, 0)
     # maxima and minima are arrays with elements of the maximum or minimum values of each column in all_atom_positions
-    x_width = maxima[0] - minima[0]
-    y_width = maxima[1] - minima[1]
-    z_width = maxima[2] - minima[2]
-
+    coordinate_widths = maxima - minima
+    
 
     # Find and store Nearest Neighbors
-    nearest_neighbor_vec_list = [[]] # Use list to speed up list.append compared to numpy.append
+    nearest_neighbor_vec_list = [[]] # Use python list to speed up list.append compared to numpy.append (which copies the entire array every time)
 
-    dr = 0.0 # distance between two atoms being checked
-    vec = np.empty(0) # vector from atom i to atom j
-    vec_norm = 0.0
+    vec = np.empty(0) # vec stores a vector from atom i to atom j
+    vec_norm = 0.0 # magnitude of the vector
     for i in range(layer_num_atoms):
-        non_periodic_atoms_to_check = all_atom_positions[(abs(all_atom_positions[:,0] - layer_atom_positions[i,0]) <= rnn)
-                                                        & (abs(all_atom_positions[:,1] - layer_atom_positions[i,1]) <= rnn)
-                                                        & (abs(all_atom_positions[:,2] - layer_atom_positions[i,2]) <= rnn)]
-        periodic_atoms_to_check = all_atom_positions[(abs(all_atom_positions[:,0] - layer_atom_positions[i,0] - x_width) <= rnn)
-                                                    & (abs(all_atom_positions[:,1] - layer_atom_positions[i,1] - y_width) <= rnn)
-                                                    & (abs(all_atom_positions[:,2] - layer_atom_positions[i,2] - z_width) <= rnn)]
-        atoms_to_check = np.concatenate((non_periodic_atoms_to_check, periodic_atoms_to_check), axis=0)
-        num_atoms_to_check = len(atoms_to_check)
-        if(i == 0): print(f"Number of atoms to check: {num_atoms_to_check}")
-        for j in range(num_atoms_to_check):
-            vec = atoms_to_check[j] - layer_atom_positions[i]
-            vec_norm = np.linalg.norm(vec)
+        for j in range(total_atoms):
+            vec = all_atom_positions[j] - layer_atom_positions[i]
+            scaled_vec = np.array([vec[k]/coordinate_widths[k] for k in range(3)])
+
+            potential_nn_vector = scaled_vec - np.around(scaled_vec)
+            potential_nn_vector = np.array([potential_nn_vector[k]*coordinate_widths[k] for k in range(3)])
+
+            vec_norm = np.linalg.norm(potential_nn_vector)
             if(vec_norm <= rnn and vec_norm != 0):
-                nearest_neighbor_vec_list.append(vec.tolist())
+                nearest_neighbor_vec_list.append(potential_nn_vector.tolist())
 
     nearest_neighbor_vectors = np.array(nearest_neighbor_vec_list[1:]) # first element of nearest_neighbor_vec_list is an empty list so cut it out
     num_neighbor_vectors = len(nearest_neighbor_vectors)
@@ -162,7 +155,7 @@ with open(f'./output_files/Q_output_{file_name}.txt', 'w') as f:
     f.write(f'Bond Order Parameters for {file_name}\n')
     f.write(f'Frame          Q{L}\n')
     for i in range(len(QL_list)):
-        f.write(f'{frame_list[i]}{QL_list[i]:20.4f}\n')
+        f.write(f'{frame_list[i]}{QL_list[i]:10.4f}\n')
 
 
 # Pseudocode for math:
