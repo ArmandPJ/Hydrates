@@ -59,6 +59,127 @@ file_object.seek(0,0)
 
 QL_list = []
 
+def filter_atom_arrays(_all_atoms):
+    """ Filters an array via various techniques
+    
+    Parameters:
+    _all_atoms (ndarray): an array of atom positions (vectors)
+
+    Returns:
+    surface_atoms (ndarray): an array of surface atoms within a particular range of z
+    all_atoms (ndarray): an array of all atoms within certain filtered conditions
+
+    """
+    all_atoms = _all_atoms
+    all_atoms = all_atoms[(symbol_data != 'H')] # filter out hydrogen atoms from all_atoms
+    all_atoms = all_atoms[all_atoms[:,2].argsort()] # sort the array by the z coordinate
+
+    z_min = 39 # narrow down the array to a layer of atoms between z = 39 and z = 60
+    z_max = 60
+    surface_width_in_z = z_max - z_min
+
+    # filter out any atoms that are more than 1 surface width away (in z) from surface of interest
+    all_atoms = all_atoms[(all_atoms[:,2] >= z_min - surface_width_in_z)
+                            & (all_atoms[:,2] <= surface_width_in_z + z_max)]
+    
+    # only store atoms with z between 39 and 58 in surface_atom_positions
+    surface_atoms = all_atoms[(all_atoms[:,2] >= z_min) & (all_atoms[:,2] <= z_max)]
+
+    return surface_atoms, all_atoms
+
+def normalize_by_column(arr):
+    """ Normalizes an array by column
+    
+    Parameters:
+    arr (ndarray): array to be normalized
+
+    Returns:
+    _array (ndarray): normalized copy of arr
+    
+    """
+    _array = arr
+    for col in range(3):
+        _array[:, col] = (_array[:,col] - np.min(_array[:,col])) / coord_widths[col]
+
+    return _array
+
+def denormalize_by_column(arr):
+    """ Undoes normalization on a given array
+    
+    Parameters:
+    arr (ndarray): the array to be denormalized
+
+    Returns:
+    _array (ndarray): a denormalized copy of arr
+
+    """
+    _arr = arr
+    for col in range(3):
+        _arr[:, col] = _arr[:,col] * coord_widths[col] + np.min(_arr[:, col])
+
+    return _arr
+
+def scale_and_adjust_periodicity(_diff_vectors):
+    """ Normalizes a given array, adjusts for periodic boundaries, then denormalizes the array
+    
+    Parameters:
+    _diff_vectors (ndarray): an array to be scaled and adjusted for periodicity
+
+    Returns:
+    difference_vectors (ndarray): a copy of the original array, adjust for periodic boundaries
+    
+    """
+    difference_vectors = _diff_vectors
+    difference_vectors = normalize_by_column(difference_vectors)
+    for col in range(2): # adjust x and y to the mirror image of the hydrate (if needed) to check periodic neighbors
+        difference_vectors[:, col] = difference_vectors[:,col] - np.around(difference_vectors[:,col], 0)
+    difference_vectors = denormalize_by_column(difference_vectors)
+    
+    return difference_vectors
+
+def generate_nearest_neighbors():
+    # Find and store Nearest Neighbors
+    potential_neighbor_vectors = np.empty((0,3))
+
+    for current_atom_index in range(num_atoms_in_surface):
+
+        this_atom = surface_atom_positions[current_atom_index]
+
+        # Narrow the search to atoms whose z component alone is within rnn distance
+        atoms_to_check = all_atom_positions[(abs(all_atom_positions[:,2] - this_atom[2]) <= rnn)]
+
+        diff_vectors = atoms_to_check - this_atom
+        #diff_vectors = scale_and_adjust_periodicity(diff_vectors)
+
+        potential_neighbor_vectors = np.append(potential_neighbor_vectors, diff_vectors, axis=0)
+
+        clear()
+        print(f"Current Frame is: {iframe+1}/{num_frames}\n")
+        print(f"{current_atom_index+1}/{num_atoms_in_surface} surface atoms scanned.")
+
+    nearest_neighbor_vecs = potential_neighbor_vectors[(np.linalg.norm(potential_neighbor_vectors[:], axis=1) <= rnn)
+                                                            & (np.linalg.norm(potential_neighbor_vectors[:], axis=1) != 0)]
+    num_neighbor_vecs = len(nearest_neighbor_vecs)
+    print(f"Nearest neighbor vectors length: {num_neighbor_vecs}")
+    print(nearest_neighbor_vecs)
+    
+    return nearest_neighbor_vecs, num_neighbor_vecs
+
+# calculates QLM, part of the QL equation, given vector r_vector and quantum numbers _m, _L
+def calc_QLM(r_vector, _m, _L):
+    #print(f"QLM list: {self.QLM}")
+    r_mag = np.linalg.norm(r)
+    if(r[0] == 0.0):
+        if(r[1] > 0): theta = np.pi/2
+        elif(r[1] < 0): theta = 3*(np.pi/2)
+    else: theta = np.arctan(r[1]/r[0]) # azimuthal angle
+    if(theta < 0): theta += 2*np.pi # theta must be between 0 and 2*pi
+
+    phi = np.arccos(r[2]/r_mag) # polar/colatitudinal angle
+    if(phi < 0): phi += np.pi # phi must be between 0 and pi
+    
+    return special.sph_harm(_m, _L, theta, phi)
+
 for iframe in range(num_frames):
     
     print(f"Current Frame is: {iframe+1}/{num_frames}\n")
@@ -68,75 +189,29 @@ for iframe in range(num_frames):
     symbol_data = np.array(file_data.get_chemical_symbols())
     all_atom_positions: np.ndarray = file_data.get_positions()
     
-    # Filtering
-    all_atom_positions = all_atom_positions[(symbol_data != 'H')] # filter out hydrogen atoms from all_atom_positions
-    all_atom_positions = all_atom_positions[all_atom_positions[:,2].argsort()] # sort the array by the z coordinate
-
-    z_min = 39 # narrow down the array to a layer of atoms between z = 39 and z = 58
-    z_max = 60
-    
-    # only store atoms with z between 39 and 58 in layer_atom_positions
-    layer_atom_positions = all_atom_positions[(all_atom_positions[:,2] >= z_min) & (all_atom_positions[:,2] <= z_max)]
-    
+    # Filter function
+    surface_atom_positions, all_atom_positions = filter_atom_arrays(all_atom_positions)
     
     # Get useful lengths and dimensions of arrays for printing, later use in loops, etc.
-    layer_num_atoms, num_coords = layer_atom_positions.shape
+    num_atoms_in_surface, num_coords = surface_atom_positions.shape
     total_atoms = len(all_atom_positions)
     print(f"Length of all_atom_positions:    {total_atoms}")
-    print(f"Length of layer_atom_positions:  {layer_num_atoms}\n")
+    print(f"Length of surface_atom_positions:  {num_atoms_in_surface}\n")
 
     # Get the width of the hydrate in x, y, z
     maxima = np.max(all_atom_positions, 0)
     minima = np.min(all_atom_positions, 0)
     # maxima and minima are arrays with elements of the maximum or minimum values of each column in all_atom_positions
-    coordinate_widths = maxima - minima
-    
-    # Takes input of array arr and # of columns col, returns a copy of the array that has been normalized per column (each column has its own normalization constant)
-    def normalize_by_column(arr, col):
-            _array = arr
-            _array[:, col] = (_array[:,col] - np.min(_array[:,col])) / (np.max(_array[:,col]) - np.min(_array[:,col]))
-            return _array
+    coord_widths = maxima - minima
 
-
-
-    # Find and store Nearest Neighbors
-    potential_neighbor_vectors = np.empty((0,3))
-
-    for i in range(layer_num_atoms):
-        # Narrow the search to atoms whose z component alone is within rnn distance
-        atoms_to_check = all_atom_positions[(abs(all_atom_positions[:,2] - layer_atom_positions[i,2]) <= rnn)]
-
-        diff_vectors = atoms_to_check - layer_atom_positions[i]
-        potential_neighbor_vectors = np.append(potential_neighbor_vectors, diff_vectors, axis=0)
-
-        clear()
-        print(f"{i+1}/{layer_num_atoms} atoms")
-
-    nearest_neighbor_vectors = potential_neighbor_vectors[(np.linalg.norm(potential_neighbor_vectors[:], axis=1) <= rnn)
-                                                            & (np.linalg.norm(potential_neighbor_vectors[:], axis=1) != 0)]
-    num_neighbor_vectors = len(nearest_neighbor_vectors)
-    print(f"Nearest neighbor vectors length: {num_neighbor_vectors}")
-    print(nearest_neighbor_vectors)
+    # Generate nearest neighbor vectors
+    nearest_neighbor_vectors, num_neighbor_vectors = generate_nearest_neighbors()
 
     #TODO: Add periodicity conditions using np.around (like NINT) in atoms_to_check?
 
     # Calculate QL, a bond order parameter which is averaged over all nearest neighbor vectors
     QLM = []
     QL = 0.0
-
-    # calculates QLM, part of the QL equation, given vector r_vector and quantum numbers _m, _L
-    def calc_QLM(r_vector, _m, _L):
-        #print(f"QLM list: {self.QLM}")
-        r_mag = np.linalg.norm(r)
-        if(r[0] == 0.0):
-            if(r[1] > 0): theta = np.pi/2
-            elif(r[1] < 0): theta = 3*(np.pi/2)
-        else: theta = np.arctan(r[1]/r[0]) # azimuthal angle
-        if(theta < 0): theta += 2*np.pi # theta must be between 0 and 2*pi
-
-        phi = np.arccos(r[2]/r_mag) # polar/colatitudinal angle
-        if(phi < 0): phi += np.pi # phi must be between 0 and pi
-        return special.sph_harm(_m, _L, theta, phi)
     
     # Performs calculations to obtain QL
     for m in range (-L, L+1):
@@ -157,7 +232,7 @@ print()
 print(f"Elapsed time was {elapsed_time} seconds.")
 
 # Writing the data to a text file:
-with open(f'./output_files/Q_output_{file_name}.txt', 'w') as f:
+with open(f'./output_files/Q{L}_output_{file_name}.txt', 'w') as f:
     f.write(f'Bond Order Parameters for {file_name}\n')
     f.write(f'Frame          Q{L}\n')
     for i in range(len(QL_list)):
