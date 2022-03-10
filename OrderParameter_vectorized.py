@@ -22,6 +22,7 @@ from ase import Atoms
 from pathlib import Path
 
 warnings.simplefilter("ignore")
+clear = lambda: os.system('clear')
 
 #sys.path.append(".") # add this directory as a path for modules
 #from neighbormanager import Neighborhood
@@ -31,8 +32,8 @@ warnings.simplefilter("ignore")
 
 directory = "/home/armandpj/Work/Hydrates/examples"
 
-file_name = input("Enter file name: ")
-#file_name = "hydrate.pdb"
+#file_name = input("Enter file name: ")
+file_name = "hydrate.pdb"
 input_path = Path(directory)/file_name
 
 if not input_path.exists():
@@ -90,30 +91,35 @@ for iframe in range(num_frames):
     # maxima and minima are arrays with elements of the maximum or minimum values of each column in all_atom_positions
     coordinate_widths = maxima - minima
     
+    # Takes input of array arr and # of columns col, returns a copy of the array that has been normalized per column (each column has its own normalization constant)
+    def normalize_by_column(arr, col):
+            _array = arr
+            _array[:, col] = (_array[:,col] - np.min(_array[:,col])) / (np.max(_array[:,col]) - np.min(_array[:,col]))
+            return _array
+
+
 
     # Find and store Nearest Neighbors
-    nearest_neighbor_vec_list = [[]] # Use python list to speed up list.append compared to numpy.append (which copies the entire array every time)
+    potential_neighbor_vectors = np.empty((0,3))
 
-    vec = np.empty(0) # vec stores a vector from atom i to atom j
-    vec_norm = 0.0 # magnitude of the vector
     for i in range(layer_num_atoms):
-        for j in range(total_atoms):
-            vec = all_atom_positions[j] - layer_atom_positions[i]
-            scaled_vec = np.array([vec[k]/coordinate_widths[k] for k in range(3)])
+        # Narrow the search to atoms whose z component alone is within rnn distance
+        atoms_to_check = all_atom_positions[(abs(all_atom_positions[:,2] - layer_atom_positions[i,2]) <= rnn)]
 
-            potential_nn_vector = scaled_vec - np.around(scaled_vec)
-            potential_nn_vector = np.array([potential_nn_vector[k]*coordinate_widths[k] for k in range(3)])
+        diff_vectors = atoms_to_check - layer_atom_positions[i]
+        potential_neighbor_vectors = np.append(potential_neighbor_vectors, diff_vectors, axis=0)
 
-            vec_norm = np.linalg.norm(potential_nn_vector)
-            if(vec_norm <= rnn and vec_norm != 0):
-                nearest_neighbor_vec_list.append(potential_nn_vector.tolist())
+        clear()
+        print(f"{i+1}/{layer_num_atoms} atoms")
 
-    nearest_neighbor_vectors = np.array(nearest_neighbor_vec_list[1:]) # first element of nearest_neighbor_vec_list is an empty list so cut it out
+    nearest_neighbor_vectors = potential_neighbor_vectors[(np.linalg.norm(potential_neighbor_vectors[:], axis=1) <= rnn)
+                                                            & (np.linalg.norm(potential_neighbor_vectors[:], axis=1) != 0)]
     num_neighbor_vectors = len(nearest_neighbor_vectors)
     print(f"Nearest neighbor vectors length: {num_neighbor_vectors}")
     print(nearest_neighbor_vectors)
 
-    
+    #TODO: Add periodicity conditions using np.around (like NINT) in atoms_to_check?
+
     # Calculate QL, a bond order parameter which is averaged over all nearest neighbor vectors
     QLM = []
     QL = 0.0
