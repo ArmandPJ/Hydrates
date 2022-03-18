@@ -8,15 +8,15 @@ Created on Wed Jul 14 18:03:01 2021
 # Program to perform order parameter calculations on input coordinates
 
 #from mpmath import * 
+from sqlite3 import SQLITE_CREATE_INDEX
 import sys
 import warnings
 import os
 import time
 import numpy as np
-#import matplotlib.pyplot as plt
 from scipy import special
 from math import sqrt
-import ase # just import what you need
+import ase
 from ase import io
 from ase import Atoms
 from pathlib import Path
@@ -64,7 +64,7 @@ def normalize_by_column(arr, coord_widths):
     """
     _array = arr
     for col in range(3):
-        _array[:, col] = (_array[:,col] - np.min(_array[:,col])) / coord_widths[col]
+        _array[:, col] = _array[:,col] / coord_widths[col]
 
     return _array
 
@@ -80,9 +80,29 @@ def denormalize_by_column(arr, coord_widths):
     """
     _arr = arr
     for col in range(3):
-        _arr[:, col] = _arr[:,col] * coord_widths[col] + np.min(_arr[:, col])
+        _arr[:, col] = _arr[:,col] * coord_widths[col]
 
     return _arr
+
+def remove_duplicate_vectors(data):
+    """ Removes duplicate rows from a 2D numpy array using lexsort functions
+    
+    Parameters:
+    data (ndarray): an array whose duplicates are to be removed
+
+    Returns:
+    unique_vector_array (ndarray): a copy of the original input array that has had all duplicate rows removed
+    
+    """
+    sorted_index = np.lexsort(data.T)
+    sorted_data = data[sorted_index, :]
+
+    # Get unique row boolean mask
+    row_mask = np.append([True], np.any(np.diff(sorted_data, axis=0), 1))
+
+    unique_vector_array = sorted_data[row_mask]
+
+    return unique_vector_array
 
 def scale_and_adjust_periodicity(_diff_vectors, coord_widths):
     """ Normalizes a given array, adjusts for periodic boundaries, then denormalizes the array
@@ -94,11 +114,17 @@ def scale_and_adjust_periodicity(_diff_vectors, coord_widths):
     difference_vectors (ndarray): a copy of the original array, adjust for periodic boundaries
     
     """
-    difference_vectors = _diff_vectors
-    difference_vectors = normalize_by_column(difference_vectors, coord_widths)
-    for col in range(2): # adjust x and y to the mirror image of the hydrate (if needed) to check periodic neighbors
-        difference_vectors[:, col] = difference_vectors[:,col] - np.around(difference_vectors[:,col], 0)
-    difference_vectors = denormalize_by_column(difference_vectors, coord_widths)
+    difference_vectors = _diff_vectors # stores original copy of difference vectors
+    # Slicing and rounding for adjusting x and y to periodic images (if necessary), makes a new copy of difference vectors that has been adjusted
+    adjusted_vectors = normalize_by_column(difference_vectors, coord_widths)
+    sliced_array = adjusted_vectors[:, [0,1]]
+    rounded_array = np.around(sliced_array)
+    for col in range(2):
+        adjusted_vectors[:,col] = adjusted_vectors[:,col] - rounded_array[:, col]
+    # Append the two arrays of difference vectors together to include all potential neighbors, including mirror images, but delete duplicates
+    difference_vectors = np.append(difference_vectors, denormalize_by_column(adjusted_vectors, coord_widths), axis=0)
+    
+    difference_vectors = remove_duplicate_vectors(difference_vectors)
     
     return difference_vectors
 
@@ -107,7 +133,7 @@ def generate_nearest_neighbors(surface_atom_positions, all_atom_positions, ifram
 
     Parameters:
     surface_atom_positions (ndarray): array of position vectors of atoms at the hydrate surface
-    all_atom_positions (ndarray): array of position vectors of all atoms in the hydrate (filtered)
+    all_atom_positions (ndarray): array of position vectors of all atoms in the hydrate
     iframe (int): the current frame of the .pdb file
     num_frames (int): the total number of frames in the .pdb file
     coord_widths (ndarray): an array containing the 3 widths of the hydrate in x, y, and z
@@ -124,18 +150,17 @@ def generate_nearest_neighbors(surface_atom_positions, all_atom_positions, ifram
 
         this_atom = surface_atom_positions[current_atom_index]
 
-        # Narrow the search to atoms whose z component alone is within rnn distance
+        # Narrow the search to atoms whose x,y,z components individually are within rnn distance
         atoms_to_check = all_atom_positions[(abs(all_atom_positions[:,2] - this_atom[2]) <= rnn)]
 
         diff_vectors = atoms_to_check - this_atom
         diff_vectors = scale_and_adjust_periodicity(diff_vectors, coord_widths)
-        #TODO Scale and adjust for periodicity
 
         potential_neighbor_vectors = np.append(potential_neighbor_vectors, diff_vectors, axis=0)
 
-        clear()
-        print(f"Current Frame is: {iframe+1}/{num_frames}\n")
-        print(f"{current_atom_index+1}/{len(surface_atom_positions)} surface atoms scanned.")
+        #clear()
+        #print(f"Current Frame is: {iframe+1}/{num_frames}\n")
+        #print(f"{current_atom_index+1}/{len(surface_atom_positions)} surface atoms scanned.")
 
     nearest_neighbor_vecs = potential_neighbor_vectors[(np.linalg.norm(potential_neighbor_vectors[:], axis=1) <= rnn)
                                                             & (np.linalg.norm(potential_neighbor_vectors[:], axis=1) != 0)]
@@ -161,6 +186,7 @@ def calc_QLM(r_vector, _m, _L):
     if(r_vector[0] == 0.0):
         if(r_vector[1] > 0): theta = np.pi/2
         elif(r_vector[1] < 0): theta = 3*(np.pi/2)
+        elif(r_vector[1] == 0): theta = 0.0
     else: theta = np.arctan(r_vector[1]/r_vector[0]) # azimuthal angle
     if(theta < 0): theta += 2*np.pi # theta must be between 0 and 2*pi
 
@@ -234,6 +260,7 @@ def main():
         minima = np.min(all_atom_positions, 0)
         # maxima and minima are arrays with elements of the maximum or minimum values of each column in all_atom_positions
         coord_widths = maxima - minima
+        print(f"Coord widths:\n{coord_widths}\n")
 
         # Generate nearest neighbor vectors
         nearest_neighbor_vectors, num_neighbor_vectors = generate_nearest_neighbors(surface_atom_positions, all_atom_positions,
